@@ -1,0 +1,44 @@
+DLLOADNAME ?= "libSDL2-2.0.0.dylib"
+CFLAGS += -fPIC -Wall -Wextra -O2 `sdl2-config --cflags` -g -DDLLOADNAME=\"$(DLLOADNAME)\"
+CFLAGS32 = $(CFLAGS) -arch i386
+CFLAGS64 = $(CFLAGS) -arch x86_64
+ALLARCHFLAGS = -arch i386 -arch x86_64 
+LIB_INSTALL_NAME ?= /opt/local/lib/libSDL-1.2.0.dylib
+LIB_COMPAT_VER ?= 12.0
+LIB_CURRENT_VER ?= 12.4
+
+
+LDFLAGS += -dynamiclib -compatibility_version $(LIB_COMPAT_VER) -current_version \
+$(LIB_CURRENT_VER) -install_name $(LIB_INSTALL_NAME) -ldl 
+TARGET = libSDL-1.2.0.dylib
+SRCS = main.c video.c audio.c audiocvt.c timer.c events.c joystick.c rwops.c
+OBJS = $(SRCS:.c=.o)
+HEADERS = redir.h unredir.h
+
+.PHONY: all
+all: $(TARGET)
+
+%.o: %.c $(DEPS)
+	$(CC) -c -o $@ $< $(CFLAGS) $(ALLARCHFLAGS)
+
+$(TARGET): $(OBJS)
+	$(CC) $(LDFLAGS) -o $@ $^ $(ALLARCHFLAGS)
+
+$(SRCS:.c=-32.d):%-32.d:%.c $(HEADERS)
+	$(CC) $(CFLAGS32) -MM $< >$@
+
+$(SRCS:.c=-64.d):%-64.d:%.c $(HEADERS)
+	$(CC) $(CFLAGS64) -MM $< >$@
+
+redir.h: symbols.x
+	sed 's/SDL2_SYMBOL(\([^,]*\),.*/#define \1 re\1/' $^ > $@
+
+unredir.h: symbols.x
+	sed 's/SDL2_SYMBOL(\([^,]*\),.*/#undef \1/' $^ > $@
+
+include $(SRCS:.c=-32.d)
+include $(SRCS:.c=-64.d)
+
+.PHONY: clean
+clean:
+	-$(RM) $(TARGET) $(OBJS) $(SRCS:.c=-32.d) $(SRCS:.c=-64.d) $(HEADERS)

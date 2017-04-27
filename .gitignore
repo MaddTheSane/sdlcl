@@ -4,6 +4,7 @@
 *.o
 # Shared object files
 *.so.*
+*.dylib
 # Generated header files
 redir.h
 unredir.h

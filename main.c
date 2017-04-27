@@ -52,7 +52,7 @@ static Uint32 initflags1to2 (Uint32 flags) {
 
 static int initlib (void) {
 	if (!lib) {
-		lib = dlopen("libSDL2-2.0.so.0", RTLD_LAZY);
+		lib = dlopen(DLLOADNAME, RTLD_LAZY);
 		if (!lib) return -1;
 #define SDL2_SYMBOL(name, ret, param) \
 		r##name = dlsym(lib, #name); \
