@@ -3,7 +3,7 @@ CFLAGS += -fPIC -Wall -Wextra -O2 `sdl2-config --cflags` -g -DDLLOADNAME=\"$(DLL
 CFLAGS32 = $(CFLAGS) -arch i386
 CFLAGS64 = $(CFLAGS) -arch x86_64
 ALLARCHFLAGS = -arch i386 -arch x86_64 
-LIB_INSTALL_NAME ?= /opt/local/lib/libSDL-1.2.0.dylib
+LIB_INSTALL_NAME ?= /usr/local/lib/libSDL-1.2.0.dylib
 LIB_COMPAT_VER ?= 12.0
 LIB_CURRENT_VER ?= 12.4
 
@@ -25,10 +25,7 @@ all: $(TARGET)
 $(TARGET): $(OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(ALLARCHFLAGS)
 
-$(SRCS:.c=-32.d):%-32.d:%.c $(HEADERS)
-	$(CC) $(CFLAGS32) -MM $< >$@
-
-$(SRCS:.c=-64.d):%-64.d:%.c $(HEADERS)
+$(SRCS:.c=.d):%.d:%.c $(HEADERS)
 	$(CC) $(CFLAGS64) -MM $< >$@
 
 redir.h: symbols.x
@@ -37,9 +34,8 @@ redir.h: symbols.x
 unredir.h: symbols.x
 	sed 's/SDL2_SYMBOL(\([^,]*\),.*/#undef \1/' $^ > $@
 
-include $(SRCS:.c=-32.d)
-include $(SRCS:.c=-64.d)
+include $(SRCS:.c=.d)
 
 .PHONY: clean
 clean:
-	-$(RM) $(TARGET) $(OBJS) $(SRCS:.c=-32.d) $(SRCS:.c=-64.d) $(HEADERS)
+	-$(RM) $(TARGET) $(OBJS) $(SRCS:.c=.d) $(HEADERS)
