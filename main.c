@@ -56,7 +56,11 @@ __attribute__ ((destructor)) static void quitlib (void) {
 
 __attribute__ ((constructor)) static void initlib (void) {
 	if (!lib) {
-		lib = dlopen("libSDL2-2.0.so.0", RTLD_LAZY | RTLD_LOCAL);
+		const char *libName = getenv("SDL2LOADNAME");
+		if (!libName) {
+			libName = "libSDL2-2.0.so.0";
+		}
+		lib = dlopen(libName, RTLD_LAZY | RTLD_LOCAL);
 		if (!lib) {
 			load_error(NULL);
 			return;
