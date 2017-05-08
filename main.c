@@ -37,9 +37,41 @@
 
 static void *lib = NULL;
 
-#define SDL2_SYMBOL(name, ret, param) ret (SDLCALL *r##name) param __attribute__ ((visibility ("hidden")));
+#define SDL2_SYMBOL(name, ret, param) ret (SDLCALL *r##name) param __attribute__ ((visibility ("hidden"))) = NULL;
 #include "symbols.x"
 #undef SDL2_SYMBOL
+
+static void load_error (const char *symbol);
+
+__attribute__ ((destructor)) static void quitlib (void) {
+	if (lib) {
+		dlclose(lib);
+		lib = NULL;
+#define SDL2_SYMBOL(name, ret, param) \
+		r##name = NULL;
+#include "symbols.x"
+#undef SDL2_SYMBOL
+	}
+}
+
+__attribute__ ((constructor)) static void initlib (void) {
+	if (!lib) {
+		lib = dlopen(DLLOADNAME, RTLD_LAZY | RTLD_LOCAL);
+		if (!lib) {
+			load_error(NULL);
+			return;
+		}
+#define SDL2_SYMBOL(name, ret, param) \
+		r##name = dlsym(lib, #name); \
+		if (!r##name) { \
+			quitlib(); \
+			load_error(#name); \
+			return; \
+		}
+#include "symbols.x"
+#undef SDL2_SYMBOL
+	}
+}
 
 static Uint32 initflags1to2 (Uint32 flags) {
 	Uint32 flags2 = 0;
@@ -50,43 +82,22 @@ static Uint32 initflags1to2 (Uint32 flags) {
 	return flags2;
 }
 
-static int initlib (void) {
-	if (!lib) {
-		lib = dlopen(DLLOADNAME, RTLD_LAZY);
-		if (!lib) return -1;
-#define SDL2_SYMBOL(name, ret, param) \
-		r##name = dlsym(lib, #name); \
-		if (!r##name) { \
-			dlclose(lib); \
-			lib = NULL; \
-			return -1; \
-		}
-#include "symbols.x"
-#undef SDL2_SYMBOL
-	}
-	return 0;
-}
-
 int SDLCALL SDL_Init (Uint32 flags) {
-	if (initlib()) return -1;
+	if (!lib) return -1;
 	return rSDL_Init(initflags1to2(flags));
 }
 
 int SDLCALL SDL_InitSubSystem (Uint32 flags) {
-	if (initlib()) return -1;
+	if (!lib) return -1;
 	return rSDL_InitSubSystem(initflags1to2(flags));
 }
 
 void SDLCALL SDL_QuitSubSystem (Uint32 flags) {
-	rSDL_QuitSubSystem(initflags1to2(flags));
+	if (lib) rSDL_QuitSubSystem(initflags1to2(flags));
 }
 
 void SDLCALL SDL_Quit (void) {
-	if (lib) {
-		rSDL_Quit();
-		dlclose(lib);
-		lib = NULL;
-	}
+	if (lib) rSDL_Quit();
 }
 
 Uint32 SDLCALL SDL_WasInit (Uint32 flags) {
@@ -100,16 +111,58 @@ Uint32 SDLCALL SDL_WasInit (Uint32 flags) {
 	return ret;
 }
 
+typedef enum {
+	SDL1_ENOMEM,
+	SDL1_EFREAD,
+	SDL1_EFWRITE,
+	SDL1_EFSEEK,
+	SDL1_UNSUPPORTED,
+	SDL1_LASTERROR
+} SDL1_errorcode;
+
 #define ERRBUF_SIZE 1024
+static char errbuf[ERRBUF_SIZE];
+
 char *SDLCALL SDL_GetError (void) {
-	static char errbuf[ERRBUF_SIZE];
-	static const char *err;
 	if (lib) {
-		err = rSDL_GetError();
-	} else {
-		err = "Error loading SDL";
+		strncpy(errbuf, rSDL_GetError(), ERRBUF_SIZE);
+		errbuf[ERRBUF_SIZE - 1] = 0;
 	}
-	strncpy(errbuf, err, ERRBUF_SIZE);
-	errbuf[ERRBUF_SIZE - 1] = 0;
 	return errbuf;
+}
+
+void SDLCALL SDL_SetError (const char *fmt, ...) {
+	char err[ERRBUF_SIZE];
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(err, ERRBUF_SIZE, fmt, ap);
+	va_end(ap);
+	if (lib) rSDL_SetError("%s", err);
+	else strcpy(errbuf, err);
+}
+
+void SDLCALL SDL_ClearError (void) {
+	if (lib) rSDL_ClearError();
+	else errbuf[0] = 0;
+}
+
+void SDLCALL SDL_Error (SDL1_errorcode code) {
+	SDL_errorcode code2;
+	switch (code) {
+		case SDL1_ENOMEM: code2 = SDL_ENOMEM; break;
+		case SDL1_EFREAD: code2 = SDL_EFREAD; break;
+		case SDL1_EFWRITE: code2 = SDL_EFWRITE; break;
+		case SDL1_EFSEEK: code2 = SDL_EFSEEK; break;
+		case SDL1_UNSUPPORTED:
+		default:
+			code2 = SDL_UNSUPPORTED;
+			break;
+	}
+	if (lib) rSDL_Error(code2);
+	else SDL_SetError("SDL error code %d", (int)code);
+}
+
+static void load_error (const char *symbol) {
+	if (symbol) SDL_SetError("Error loading SDL2 symbol %s", symbol);
+	else SDL_SetError("Error loading SDL2: %s", dlerror());
 }

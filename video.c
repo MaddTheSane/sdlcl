@@ -25,6 +25,7 @@
 
 #include "SDL2.h"
 #include "rwops.h"
+#include "version.h"
 
 typedef struct SDL1_Rect {
 	Sint16 x, y;
@@ -131,21 +132,33 @@ static Uint8 masktoshift (Uint32 mask) {
 	return shift;
 }
 
+static void process_masks (SDL1_PixelFormat *format) {
+	format->Rloss = masktoloss(format->Rmask);
+	format->Gloss = masktoloss(format->Gmask);
+	format->Bloss = masktoloss(format->Bmask);
+	format->Aloss = masktoloss(format->Amask);
+	format->Rshift = masktoshift(format->Rmask);
+	format->Gshift = masktoshift(format->Gmask);
+	format->Bshift = masktoshift(format->Bmask);
+	format->Ashift = masktoshift(format->Amask);
+}
+
 static SDL1_Surface *SDLCL_CreateSurfaceFromSDL2(SDL_Surface *surface2) {
 	SDL1_Proxy *proxy;
 	int i, ncolors = surface2->format->palette ? surface2->format->palette->ncolors : 0;
 	SDL_Color *color;
+	SDL_BlendMode blend;
 	proxy = malloc(sizeof(SDL1_Proxy) + ncolors * sizeof(SDL1_Color));
 	if (!proxy) {
 		return NULL;
 	}
-	proxy->surface.flags = SDL_MUSTLOCK(surface2) ? SDL_RLEACCEL : 0;
+	proxy->surface.flags = 0;
 	proxy->surface.format = &proxy->format;
 	proxy->surface.w = surface2->w;
 	proxy->surface.h = surface2->h;
 	proxy->surface.pitch = surface2->pitch;
 	proxy->surface.pixels = surface2->pixels;
-	proxy->surface.offset = 0;
+	proxy->surface.offset = SDL_MUSTLOCK(surface2);
 	proxy->surface.sdl2_surface = surface2;
 	proxy->surface.clip_rect.x = surface2->clip_rect.x;
 	proxy->surface.clip_rect.y = surface2->clip_rect.y;
@@ -170,17 +183,27 @@ static SDL1_Surface *SDLCL_CreateSurfaceFromSDL2(SDL_Surface *surface2) {
 	proxy->format.Gmask = surface2->format->Gmask;
 	proxy->format.Bmask = surface2->format->Bmask;
 	proxy->format.Amask = surface2->format->Amask;
-	proxy->format.Rloss = masktoloss(proxy->format.Rmask);
-	proxy->format.Gloss = masktoloss(proxy->format.Gmask);
-	proxy->format.Bloss = masktoloss(proxy->format.Bmask);
-	proxy->format.Aloss = masktoloss(proxy->format.Amask);
-	proxy->format.Rshift = masktoshift(proxy->format.Rmask);
-	proxy->format.Gshift = masktoshift(proxy->format.Gmask);
-	proxy->format.Bshift = masktoshift(proxy->format.Bmask);
-	proxy->format.Ashift = masktoshift(proxy->format.Amask);
-	proxy->format.colorkey = 0;
-	proxy->format.alpha = 255;
+	process_masks(&proxy->format);
+	if (rSDL_GetColorKey(surface2, &proxy->format.colorkey))
+		proxy->format.colorkey = 0;
+	else
+		proxy->surface.flags |= SDL1_SRCCOLORKEY;
+	if (rSDL_GetSurfaceAlphaMod(surface2, &proxy->format.alpha))
+		proxy->format.alpha = 255;
+	if (!rSDL_GetSurfaceBlendMode(surface2, &blend) && blend == SDL_BLENDMODE_BLEND)
+		proxy->surface.flags |= SDL1_SRCALPHA;
 	return &proxy->surface;
+}
+
+static void update_surface_blend (SDL1_Surface *surface) {
+	int isalpha = surface->format->Amask && !surface->format->palette;
+	int colorkey = (surface->flags & SDL1_SRCCOLORKEY) && (!isalpha || !(surface->flags & SDL1_SRCALPHA));
+	int alphablend = surface->flags & SDL1_SRCALPHA && (isalpha || surface->format->alpha != 255);
+	rSDL_SetSurfaceRLE(surface->sdl2_surface, surface->flags & SDL1_RLEACCEL);
+	rSDL_SetSurfaceBlendMode(surface->sdl2_surface, alphablend ? SDL_BLENDMODE_BLEND : SDL_BLENDMODE_NONE);
+	rSDL_SetSurfaceAlphaMod(surface->sdl2_surface, (isalpha || !alphablend) ? 255 : surface->format->alpha);
+	rSDL_SetColorKey(surface->sdl2_surface, colorkey ? SDL_TRUE : SDL_FALSE, surface->format->colorkey);
+	surface->offset = SDL_MUSTLOCK(surface->sdl2_surface);
 }
 
 SDL1_Surface *SDLCALL SDL_CreateRGBSurface (Uint32 flags, int width, int height, int depth, Uint32 Rmask, Uint32 Gmask, Uint32 Bmask, Uint32 Amask) {
@@ -195,8 +218,7 @@ SDL1_Surface *SDLCALL SDL_CreateRGBSurface (Uint32 flags, int width, int height,
 		return NULL;
 	}
 	surface->flags |= flags & (SDL1_SRCCOLORKEY | SDL1_SRCALPHA);
-	if (surface->flags & SDL1_SRCALPHA) rSDL_SetSurfaceBlendMode(surface2, SDL_BLENDMODE_BLEND);
-	else rSDL_SetSurfaceBlendMode(surface2, SDL_BLENDMODE_NONE);
+	update_surface_blend(surface);
 	return surface;
 }
 
@@ -211,6 +233,41 @@ SDL1_Surface *SDLCALL SDL_CreateRGBSurfaceFrom (void *pixels, int width, int hei
 		return NULL;
 	}
 	return surface;
+}
+
+int SDLCALL SDL_SetAlpha (SDL1_Surface *surface, Uint32 flag, Uint8 alpha) {
+	surface->flags = (surface->flags & ~(SDL1_SRCALPHA | SDL1_RLEACCEL)) | (flag & (SDL1_SRCALPHA | SDL1_RLEACCEL));
+	surface->format->alpha = alpha;
+	update_surface_blend(surface);
+	return 0;
+}
+
+int SDLCALL SDL_SetColorKey (SDL1_Surface *surface, Uint32 flag, Uint32 key) {
+	surface->flags = (surface->flags & ~(SDL1_SRCCOLORKEY | SDL1_RLEACCEL)) | (flag & (SDL1_SRCCOLORKEY | SDL1_RLEACCEL));
+	surface->format->colorkey = key;
+	update_surface_blend(surface);
+	return 0;
+}
+
+void SDL_GetClipRect (SDL1_Surface *surface, SDL1_Rect *rect) {
+	*rect = surface->clip_rect;
+}
+
+void SDL_SetClipRect (SDL1_Surface *surface, SDL1_Rect *rect) {
+	SDL_Rect rect2, *rectptr = NULL;
+	if (rect) {
+		rect2.x = rect->x;
+		rect2.y = rect->y;
+		rect2.w = rect->w;
+		rect2.h = rect->h;
+		rectptr = &rect2;
+	}
+	rSDL_SetClipRect(surface->sdl2_surface, rectptr);
+	rSDL_GetClipRect(surface->sdl2_surface, &rect2);
+	surface->clip_rect.x = rect2.x;
+	surface->clip_rect.y = rect2.y;
+	surface->clip_rect.w = rect2.w;
+	surface->clip_rect.h = rect2.h;
 }
 
 int SDLCALL SDL_FillRect (SDL1_Surface *dst, SDL1_Rect *dstrect, Uint32 color) {
@@ -230,6 +287,7 @@ int SDLCALL SDL_UpperBlit (SDL1_Surface *src, SDL1_Rect *srcrect, SDL1_Surface *
 	SDL_Rect srcrect2, *srcptr = NULL;
 	SDL_Rect dstrect2, *dstptr = NULL;
 	int ret;
+	if (!src || !dst) return -1;
 	if (srcrect) {
 		srcrect2.x = srcrect->x;
 		srcrect2.y = srcrect->y;
@@ -254,6 +312,23 @@ int SDLCALL SDL_UpperBlit (SDL1_Surface *src, SDL1_Rect *srcrect, SDL1_Surface *
 	return ret;
 }
 
+int SDLCALL SDL_LowerBlit (SDL1_Surface *src, SDL1_Rect *srcrect, SDL1_Surface *dst, SDL1_Rect *dstrect) {
+	SDL_Rect srcrect2, *srcptr = NULL;
+	SDL_Rect dstrect2;
+	if (srcrect) {
+		srcrect2.x = srcrect->x;
+		srcrect2.y = srcrect->y;
+		srcrect2.w = srcrect->w;
+		srcrect2.h = srcrect->h;
+		srcptr = &srcrect2;
+	}
+	dstrect2.x = dstrect->x;
+	dstrect2.y = dstrect->y;
+	dstrect2.w = dstrect->w;
+	dstrect2.h = dstrect->h;
+	return rSDL_LowerBlit(src->sdl2_surface, srcptr, dst->sdl2_surface, &dstrect2);
+}
+
 int SDLCALL SDL_LockSurface (SDL1_Surface *surface) {
 	int ret = rSDL_LockSurface(surface->sdl2_surface);
 	surface->pixels = surface->sdl2_surface->pixels;
@@ -264,13 +339,7 @@ void SDLCALL SDL_UnlockSurface (SDL1_Surface *surface) {
 	rSDL_UnlockSurface(surface->sdl2_surface);
 }
 
-void SDLCALL SDL_FreeSurface (SDL1_Surface *surface) {
-	SDL1_Proxy *proxy = (SDL1_Proxy *)surface;
-	rSDL_FreeSurface(surface->sdl2_surface);
-	free(proxy);
-}
-
-SDL1_Surface *SDLCALL SDL_LoadBMP_RW(SDL1_RWops *src, int freesrc) {
+SDL1_Surface *SDLCALL SDL_LoadBMP_RW (SDL1_RWops *src, int freesrc) {
 	SDL1_Surface *surface;
 	SDL_Surface *surface2;
 	SDL_RWops *src2 = SDLCL_RWFromSDL1(src);
@@ -280,6 +349,7 @@ SDL1_Surface *SDLCALL SDL_LoadBMP_RW(SDL1_RWops *src, int freesrc) {
 	}
 	surface2 = rSDL_LoadBMP_RW(src2, freesrc);
 	if (!freesrc) rSDL_FreeRW(src2);
+	if (!surface2) return NULL;
 	surface = SDLCL_CreateSurfaceFromSDL2(surface2);
 	if (!surface) {
 		rSDL_FreeSurface(surface2);
@@ -288,19 +358,44 @@ SDL1_Surface *SDLCALL SDL_LoadBMP_RW(SDL1_RWops *src, int freesrc) {
 	return surface;
 }
 
+int SDLCALL SDL_SaveBMP_RW (SDL1_Surface *surface, SDL1_RWops *dst, int freedst) {
+	int ret;
+	SDL_RWops *dst2 = SDLCL_RWFromSDL1(dst);
+	if (!dst2) return -1;
+	ret = rSDL_SaveBMP_RW(surface->sdl2_surface, dst2, freedst);
+	if (!freedst) rSDL_FreeRW(dst2);
+	return ret;
+}
+
 static Uint32 map_component (Uint8 v, Uint8 loss, Uint8 shift, Uint32 mask) {
 	return (((Uint32)v >> loss) << shift) & mask;
 }
 
 Uint32 SDLCALL SDL_MapRGBA (SDL1_PixelFormat *fmt, Uint8 r, Uint8 g, Uint8 b, Uint8 a) {
+	int i, dist, min, rd, gd, bd;
 	Uint32 color;
-	/* TODO: Map palette formats */
-	if (fmt->palette) return 0;
-	color = map_component(r, fmt->Rloss, fmt->Rshift, fmt->Rmask);
-	color |= map_component(g, fmt->Gloss, fmt->Gshift, fmt->Gmask);
-	color |= map_component(b, fmt->Bloss, fmt->Bshift, fmt->Bmask);
-	color |= map_component(a, fmt->Aloss, fmt->Ashift, fmt->Amask);
-	return color;
+	if (fmt->palette) {
+		min = (256 * 256) * 3;
+		color = 0;
+		for (i = 0; i < fmt->palette->ncolors; i++) {
+			rd = fmt->palette->colors[i].r - r;
+			gd = fmt->palette->colors[i].g - g;
+			bd = fmt->palette->colors[i].b - b;
+			dist = (rd * rd) + (gd * gd) + (bd * bd);
+			if (dist < min) {
+				color = i;
+				if (dist == 0) break;
+				min = dist;
+			}
+		}
+		return color;
+	} else {
+		color = map_component(r, fmt->Rloss, fmt->Rshift, fmt->Rmask);
+		color |= map_component(g, fmt->Gloss, fmt->Gshift, fmt->Gmask);
+		color |= map_component(b, fmt->Bloss, fmt->Bshift, fmt->Bmask);
+		color |= map_component(a, fmt->Aloss, fmt->Ashift, fmt->Amask);
+		return color;
+	}
 }
 
 Uint32 SDLCALL SDL_MapRGB (SDL1_PixelFormat *fmt, Uint8 r, Uint8 g, Uint8 b) {
@@ -318,11 +413,18 @@ static Uint8 get_component (Uint32 pixel, Uint8 loss, Uint8 shift, Uint32 mask) 
 }
 
 void SDLCALL SDL_GetRGBA (Uint32 pixel, SDL1_PixelFormat *fmt, Uint8 *r, Uint8 *g, Uint8 *b, Uint8 *a) {
-	*r = get_component(pixel, fmt->Rloss, fmt->Rshift, fmt->Rmask);
-	*g = get_component(pixel, fmt->Gloss, fmt->Gshift, fmt->Gmask);
-	*b = get_component(pixel, fmt->Bloss, fmt->Bshift, fmt->Bmask);
-	if (fmt->Amask) *a = get_component(pixel, fmt->Aloss, fmt->Ashift, fmt->Amask);
-	else *a = 255;
+	if (fmt->palette) {
+		*r = fmt->palette->colors[pixel].r;
+		*g = fmt->palette->colors[pixel].g;
+		*b = fmt->palette->colors[pixel].b;
+		*a = 255;
+	} else {
+		*r = get_component(pixel, fmt->Rloss, fmt->Rshift, fmt->Rmask);
+		*g = get_component(pixel, fmt->Gloss, fmt->Gshift, fmt->Gmask);
+		*b = get_component(pixel, fmt->Bloss, fmt->Bshift, fmt->Bmask);
+		if (fmt->Amask) *a = get_component(pixel, fmt->Aloss, fmt->Ashift, fmt->Amask);
+		else *a = 255;
+	}
 }
 
 void SDLCALL SDL_GetRGB (Uint32 pixel, SDL1_PixelFormat *fmt, Uint8 *r, Uint8 *g, Uint8 *b) {
@@ -380,6 +482,16 @@ static SDL1_VideoInfo video_info = {
 
 SDL1_VideoInfo *SDLCALL SDL_GetVideoInfo (void) {
 	return &video_info;
+}
+
+char *SDLCALL SDL_VideoDriverName (char *namebuf, int maxlen) {
+	const char *name = rSDL_GetCurrentVideoDriver();
+	if (!name) return NULL;
+	if (maxlen) {
+		strncpy(namebuf, name, maxlen);
+		namebuf[maxlen - 1] = 0;
+	}
+	return namebuf;
 }
 
 #define SDL_WINDOW_INVALID ((Uint32)-1)
@@ -476,13 +588,27 @@ static SDL_Texture *main_texture = NULL;
 static SDL_GLContext main_glcontext = NULL;
 static SDL1_Surface *main_surface = NULL;
 
+static SDL1_PixelFormat texture_format;
+static Uint32 physical_palette[256];
+
 static Uint32 mode_flags = 0;
 static SDL_bool grab = SDL_FALSE;
 
+void SDLCALL SDL_FreeSurface (SDL1_Surface *surface) {
+	SDL1_Proxy *proxy;
+	if (surface && surface != main_surface) {
+		proxy = (SDL1_Proxy *)surface;
+		rSDL_FreeSurface(surface->sdl2_surface);
+		free(proxy);
+	}
+}
+
 static void close_window (void) {
+	SDL1_Surface *surface;
 	if (main_surface) {
-		SDL_FreeSurface(main_surface);
+		surface = main_surface;
 		main_surface = NULL;
+		SDL_FreeSurface(surface);
 	}
 	if (main_glcontext) {
 		rSDL_GL_DeleteContext(main_glcontext);
@@ -515,6 +641,7 @@ SDL1_Surface *SDLCALL SDL_SetVideoMode (int width, int height, int bpp, Uint32 f
 	Uint32 Rmask, Gmask, Bmask, Amask;
 	Uint32 pixfmt = SDL_PIXELFORMAT_RGBX8888;
 	Uint32 flags2 = vidflags1to2(flags);
+	int tbpp;
 	(void)width;
 	(void)height;
 	(void)bpp;
@@ -552,7 +679,22 @@ SDL1_Surface *SDLCALL SDL_SetVideoMode (int width, int height, int bpp, Uint32 f
 			return NULL;
 		}
 		rSDL_SetRenderDrawColor(main_renderer, 0, 0, 0, 255);
-		main_texture = rSDL_CreateTexture(main_renderer, pixfmt, SDL_TEXTUREACCESS_STREAMING, width, height);
+		if (bpp > 8) {
+			main_texture = rSDL_CreateTexture(main_renderer, pixfmt, SDL_TEXTUREACCESS_STREAMING, width, height);
+		} else {
+			main_texture = rSDL_CreateTexture(main_renderer, SDL_PIXELFORMAT_RGBX8888, SDL_TEXTUREACCESS_STREAMING, width, height);
+			rSDL_PixelFormatEnumToMasks(SDL_PIXELFORMAT_RGBX8888,
+				&tbpp,
+				&texture_format.Rmask,
+				&texture_format.Gmask,
+				&texture_format.Bmask,
+				&texture_format.Amask);
+			texture_format.palette = NULL;
+			texture_format.BitsPerPixel = tbpp;
+			texture_format.BytesPerPixel = tbpp / 8;
+			process_masks(&texture_format);
+			memset(physical_palette, 0, sizeof(Uint32) * 256);
+		}
 		if (!main_texture) {
 			close_window();
 			return NULL;
@@ -574,9 +716,100 @@ SDL1_Surface *SDLCALL SDL_GetVideoSurface (void) {
 	return main_surface;
 }
 
+#define SDL1_LOGPAL  0x01
+#define SDL1_PHYSPAL 0x02
+
+int SDLCALL SDL_SetPalette (SDL1_Surface *surface, int flags, SDL1_Color *colors, int firstcolor, int ncolors) {
+	SDL_Color colors2[256];
+	int i;
+	if (ncolors > 256) return 0;
+	if (flags & SDL1_LOGPAL) {
+		for (i = 0; i < ncolors; i++) {
+			colors2[i].r = colors[i].r;
+			colors2[i].g = colors[i].g;
+			colors2[i].b = colors[i].b;
+			colors2[i].a = 255;
+		}
+		if (rSDL_SetPaletteColors(surface->sdl2_surface->format->palette, colors2, firstcolor, ncolors)) return 0;
+		memcpy(surface->format->palette->colors + firstcolor, colors, ncolors * sizeof(SDL1_Color));
+	}
+	if ((flags & SDL1_PHYSPAL) && surface == main_surface) {
+		if (firstcolor > 256 - ncolors) return 0;
+		for (i = 0; i < ncolors; i++)
+			physical_palette[firstcolor + i] = SDL_MapRGB(&texture_format, colors[i].r, colors[i].g, colors[i].b);
+	}
+	return 1;
+}
+
+int SDLCALL SDL_SetColors (SDL1_Surface *surface, SDL1_Color *colors, int firstcolor, int ncolors) {
+	return SDL_SetPalette(surface, SDL1_LOGPAL | SDL1_PHYSPAL, colors, firstcolor, ncolors);
+}
+
+static void convert_surface_dst (SDL1_Surface *src, SDL1_Surface *dst) {
+	Uint32 colorkey = 0;
+	Uint8 kr, kg, kb, alpha = 0;
+	Uint32 srcflags;
+	SDL1_Rect rect = { 0, 0, src->w, src->h };
+	srcflags = src->flags;
+	if (srcflags & SDL1_SRCCOLORKEY) {
+		if (!(dst->flags & SDL1_SRCCOLORKEY) && dst->format->Amask) {
+			srcflags &= ~SDL1_SRCCOLORKEY;
+		} else {
+			colorkey = src->format->colorkey;
+			SDL_SetColorKey(src, 0, 0);
+		}
+	}
+	if (srcflags & SDL1_SRCALPHA) {
+		if (dst->format->Amask) {
+			srcflags &= ~SDL1_SRCALPHA;
+		} else {
+			alpha = src->format->alpha;
+			SDL_SetAlpha(src, 0, 0);
+		}
+	}
+	SDL_LowerBlit(src, &rect, dst, &rect);
+	SDL_SetClipRect(dst, &src->clip_rect);
+	if (srcflags & SDL1_SRCCOLORKEY) {
+		SDL_GetRGB(colorkey, src->format, &kr, &kg, &kb);
+		SDL_SetColorKey(dst, srcflags & (SDL1_SRCCOLORKEY | SDL1_RLEACCEL), SDL_MapRGB(dst->format, kr, kg, kb));
+		SDL_SetColorKey(src, srcflags & (SDL1_SRCCOLORKEY | SDL1_RLEACCEL), colorkey);
+	}
+	if (srcflags & SDL1_SRCALPHA) {
+		SDL_SetAlpha(dst, srcflags & (SDL1_SRCALPHA | SDL1_RLEACCEL), alpha);
+		SDL_SetAlpha(src, srcflags & (SDL1_SRCALPHA | SDL1_RLEACCEL), alpha);
+	}
+}
+
+SDL1_Surface *SDLCALL SDL_ConvertSurface (SDL1_Surface *src, SDL1_PixelFormat *fmt, Uint32 flags) {
+	SDL1_Surface *dst;
+	dst = SDL_CreateRGBSurface(flags, src->w, src->h, fmt->BitsPerPixel, fmt->Rmask, fmt->Gmask, fmt->Bmask, fmt->Amask);
+	if (!dst) return NULL;
+	if (fmt->palette) SDL_SetColors(dst, fmt->palette->colors, 0, fmt->palette->ncolors);
+	convert_surface_dst(src, dst);
+	return dst;
+}
+
+SDL1_Surface *SDL_DisplayFormat (SDL1_Surface *surface) {
+	if (!main_surface) return NULL;
+	return SDL_ConvertSurface(surface, main_surface->format, 0);
+}
+
+SDL1_Surface *SDL_DisplayFormatAlpha (SDL1_Surface *surface) {
+	int depth;
+	Uint32 Rmask, Gmask, Bmask, Amask;
+	SDL1_Surface *dst;
+	rSDL_PixelFormatEnumToMasks(SDL_PIXELFORMAT_RGBA8888, &depth, &Rmask, &Gmask, &Bmask, &Amask);
+	dst = SDL_CreateRGBSurface(0, surface->w, surface->h, depth, Rmask, Gmask, Bmask, Amask);
+	if (!dst) return NULL;
+	convert_surface_dst(surface, dst);
+	return dst;
+}
+
 int SDLCALL SDL_Flip (SDL1_Surface *screen) {
+	Uint8 *src;
+	Uint32 *dest;
 	void *texpix;
-	int texpitch, i;
+	int texpitch, i, j;
 	(void)screen;
 	if (!main_renderer) return 0;
 	if (SDL_LockSurface(main_surface)) return -1;
@@ -584,8 +817,19 @@ int SDLCALL SDL_Flip (SDL1_Surface *screen) {
 		SDL_UnlockSurface(main_surface);
 		return -1;
 	}
-	for (i = 0; i < main_surface->h; i++)
-		memcpy(((Uint8 *)texpix) + i * texpitch, main_surface->pixels + i * main_surface->pitch, main_surface->w * main_surface->format->BytesPerPixel);
+	if (main_surface->format->BitsPerPixel > 8) {
+		for (i = 0; i < main_surface->h; i++)
+			memcpy(((Uint8 *)texpix) + i * texpitch,
+				main_surface->pixels + i * main_surface->pitch,
+				main_surface->w * main_surface->format->BytesPerPixel);
+	} else {
+		for (i = 0; i < main_surface->h; i++) {
+			src = main_surface->pixels + i * main_surface->pitch;
+			dest = (Uint32 *)(((Uint8 *)texpix) + i * texpitch);
+			for (j = 0; j < main_surface->w; j++)
+				dest[j] = physical_palette[src[j]];
+		}
+	}
 	rSDL_UnlockTexture(main_texture);
 	SDL_UnlockSurface(main_surface);
 	rSDL_RenderClear(main_renderer);
@@ -595,7 +839,7 @@ int SDLCALL SDL_Flip (SDL1_Surface *screen) {
 }
 
 /* TODO: Implement partial screen updates? */
-void SDL_UpdateRect (SDL1_Surface *screen, Sint32 x, Sint32 y, Sint32 w, Sint32 h) {
+void SDLCALL SDL_UpdateRect (SDL1_Surface *screen, Sint32 x, Sint32 y, Sint32 w, Sint32 h) {
 	(void)x;
 	(void)y;
 	(void)w;
@@ -745,6 +989,21 @@ int SDLCALL SDL_GL_SetAttribute (SDL1_GLattr attr, int value) {
 	}
 }
 
+int SDLCALL SDL_GL_GetAttribute (SDL1_GLattr attr, int *value) {
+	SDL_GLattr attr2;
+	if (glattr1to2(attr, &attr2)) {
+		return rSDL_GL_GetAttribute(attr2, value);
+	} else {
+		switch (attr) {
+			case SDL1_GL_SWAP_CONTROL:
+				*value = swap_control;
+				return 0;
+			default:
+				return -1;
+		}
+	}
+}
+
 void SDLCALL SDL_WM_SetCaption (const char *title, const char *icon) {
 	(void)title;
 	(void)icon;
@@ -777,4 +1036,75 @@ SDL1_GrabMode SDLCALL SDL_WM_GrabInput (SDL1_GrabMode mode) {
 int SDLCALL SDL_WM_IconifyWindow (void) {
 	rSDL_MinimizeWindow(main_window);
 	return 1;
+}
+
+int SDLCALL SDL_WM_ToggleFullScreen (SDL1_Surface *surface) {
+	(void)surface;
+	return 0;
+}
+
+typedef enum {
+	SDL1_SYSWM_X11
+} SDL1_SYSWM_TYPE;
+
+typedef struct SDL1_SysWMinfo {
+	SDL1_version version;
+	SDL1_SYSWM_TYPE subsystem;
+	union {
+#if defined(SDL_VIDEO_DRIVER_X11)
+		struct {
+			Display *display;
+			Window window;
+			void (*lock_func)(void);
+			void (*unlock_func)(void);
+			/* SDL 1.0.2 */
+			Window fswindow;
+			Window wmwindow;
+			/* SDL 1.2.12 */
+			Display *gfxdisplay;
+		} x11;
+#endif
+		int dummy;
+	} info;
+} SDL1_SysWMinfo;
+
+static int compare_ver (SDL1_version version, int major, int minor, int patch) {
+	if (version.major == major) {
+		if (version.minor == minor) {
+			return version.patch >= patch;
+		} else {
+			return version.minor >= minor;
+		}
+	} else {
+		return version.major >= major;
+	}
+}
+
+static void noop (void) {
+}
+
+int SDLCALL SDL_GetWMInfo (SDL1_SysWMinfo *info) {
+	SDL_SysWMinfo info2;
+	if (!main_window) return 0;
+	SDL_VERSION(&info2.version);
+	if (rSDL_GetWindowWMInfo(main_window, &info2)) {
+#if defined(SDL_VIDEO_DRIVER_X11)
+		if (info2.subsystem == SDL_SYSWM_X11 && compare_ver(info->version, 1, 0, 0)) {
+			info->subsystem = SDL1_SYSWM_X11;
+
+			info->info.x11.display = info2.info.x11.display;
+			info->info.x11.window = info2.info.x11.window;
+			info->info.x11.lock_func = noop;
+			info->info.x11.unlock_func = noop;
+			if (compare_ver(info->version, 1, 0, 2)) {
+				info->info.x11.fswindow = 0;
+				info->info.x11.wmwindow = 0;
+			}
+			if (compare_ver(info->version, 1, 2, 12))
+				info->info.x11.gfxdisplay = info2.info.x11.display;
+			return 1;
+		}
+#endif
+	}
+	return 0;
 }

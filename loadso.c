@@ -20,16 +20,18 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#ifndef SDLCL_SDL2_H
-#define SDLCL_SDL2_H
+#include <dlfcn.h>
 
-#include "redir.h"
-#include "SDL.h"
-#include "SDL_syswm.h"
-#include "unredir.h"
+#include "SDL2.h"
 
-#define SDL2_SYMBOL(name, ret, param) extern ret (SDLCALL *r##name) param;
-#include "symbols.x"
-#undef SDL2_SYMBOL
+void *SDLCALL SDL_LoadObject (const char *sofile) {
+	return dlopen(sofile, RTLD_LAZY);
+}
 
-#endif
+void *SDLCALL SDL_LoadFunction (void *handle, const char *name) {
+	return dlsym(handle, name);
+}
+
+void SDLCALL SDL_UnloadObject (void *handle) {
+	dlclose(handle);
+}
