@@ -1,5 +1,6 @@
+SDL2_CFLAGS ?= `sdl2-config --cflags`
 DLLOADNAME ?= "libSDL2-2.0.0.dylib"
-CFLAGS += -fPIC -Wall -Wextra -O2 `sdl2-config --cflags` -g -DDLLOADNAME=\"$(DLLOADNAME)\"
+CFLAGS += -fPIC -Wall -Wextra -O2 $(SDL2_CFLAGS) -g -DDLLOADNAME=\"$(DLLOADNAME)\"
 CFLAGS32 = $(CFLAGS) -arch i386
 CFLAGS64 = $(CFLAGS) -arch x86_64
 ALLARCHFLAGS = -arch i386 -arch x86_64 
@@ -11,8 +12,9 @@ LIB_CURRENT_VER ?= 12.4
 LDFLAGS += -dynamiclib -compatibility_version $(LIB_COMPAT_VER) -current_version \
 $(LIB_CURRENT_VER) -install_name $(LIB_INSTALL_NAME) -ldl 
 TARGET = libSDL-1.2.0.dylib
-SRCS = main.c video.c audio.c audiocvt.c timer.c events.c joystick.c rwops.c \
-	thread.c cpuinfo.c version.c cdrom.c loadso.c
+SRCS = main.c video.c cursor.c audio.c audiocvt.c timer.c events.c keyboard.c \
+	mouse.c joystick.c rwops.c thread.c cpuinfo.c version.c cdrom.c \
+	loadso.c
 OBJS = $(SRCS:.c=.o)
 HEADERS = redir.h unredir.h
 
