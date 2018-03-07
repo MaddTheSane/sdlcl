@@ -75,6 +75,10 @@ SDL2_SYMBOL(SDL_GetRGB, void, (Uint32 pixel, const SDL_PixelFormat *format, Uint
 
 SDL2_SYMBOL(SDL_SetPaletteColors, int, (SDL_Palette *palette, const SDL_Color *colors, int firstcolor, int ncolors))
 
+SDL2_SYMBOL(SDL_CreateCursor, SDL_Cursor *, (const Uint8 *data, const Uint8 *mask, int w, int h, int hot_x, int hot_y))
+SDL2_SYMBOL(SDL_FreeCursor, void, (SDL_Cursor *cursor))
+SDL2_SYMBOL(SDL_SetCursor, void, (SDL_Cursor *cursor))
+SDL2_SYMBOL(SDL_GetCursor, SDL_Cursor *, (void))
 SDL2_SYMBOL(SDL_ShowCursor, int, (int toggle))
 SDL2_SYMBOL(SDL_WarpMouseInWindow, void, (SDL_Window *window, int x, int y))
 
@@ -82,6 +86,7 @@ SDL2_SYMBOL(SDL_CalculateGammaRamp, void, (float gamma, Uint16 *ramp))
 SDL2_SYMBOL(SDL_GetWindowGammaRamp, int, (SDL_Window *window, Uint16 *red, Uint16 *green, Uint16 *blue))
 SDL2_SYMBOL(SDL_SetWindowGammaRamp, int, (SDL_Window *window, const Uint16 *red, const Uint16 *green, const Uint16 *blue))
 
+SDL2_SYMBOL(SDL_SetWindowTitle, void, (SDL_Window *window, const char *title))
 SDL2_SYMBOL(SDL_GetWindowGrab, SDL_bool, (SDL_Window *window))
 SDL2_SYMBOL(SDL_SetWindowGrab, void, (SDL_Window *window, SDL_bool grabbed))
 SDL2_SYMBOL(SDL_MinimizeWindow, void, (SDL_Window *window))
