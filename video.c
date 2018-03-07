@@ -21,6 +21,7 @@
  */
 
 #include <stdlib.h>
+#include <string.h>
 #include <stdio.h>
 
 #include "SDL2.h"
@@ -29,55 +30,17 @@
 #include "events.h"
 #include "rwops.h"
 #include "version.h"
+#include "loadso.h"
 
-typedef struct SDL1_Color {
-	Uint8 r;
-	Uint8 g;
-	Uint8 b;
-	Uint8 unused;
-} SDL1_Color;
+/* TODO: Proper initialization */
+DECLSPEC int SDLCALL SDL_VideoInit (const char *driver_name, Uint32 flags) {
+	(void)flags;
+	return rSDL_VideoInit(driver_name);
+}
 
-typedef struct SDL1_Palette {
-	int ncolors;
-	SDL1_Color *colors;
-} SDL1_Palette;
-
-typedef struct SDL1_PixelFormat {
-	SDL1_Palette *palette;
-	Uint8 BitsPerPixel;
-	Uint8 BytesPerPixel;
-	Uint8 Rloss;
-	Uint8 Gloss;
-	Uint8 Bloss;
-	Uint8 Aloss;
-	Uint8 Rshift;
-	Uint8 Gshift;
-	Uint8 Bshift;
-	Uint8 Ashift;
-	Uint32 Rmask;
-	Uint32 Gmask;
-	Uint32 Bmask;
-	Uint32 Amask;
-	Uint32 colorkey;
-	Uint8 alpha;
-} SDL1_PixelFormat;
-
-typedef struct SDL1_Surface {
-	Uint32 flags;
-	SDL1_PixelFormat *format;
-	int w, h;
-	Uint16 pitch;
-	void *pixels;
-	int offset;
-	SDL_Surface *sdl2_surface;
-	SDL1_Rect clip_rect;
-	Uint32 unused1;
-	Uint32 private3;
-	void *private4;
-	unsigned int private5;
-	int refcount;
-} SDL1_Surface;
-
+DECLSPEC void SDLCALL SDL_VideoQuit (void) {
+	rSDL_VideoQuit();
+}
 
 typedef struct SDL1_Proxy {
 	SDL1_Surface surface;
@@ -594,10 +557,10 @@ DECLSPEC int SDLCALL SDL_VideoModeOK(int width, int height, int bpp, Uint32 flag
 }
 
 SDL_Window *SDLCL_window = NULL;
-static SDL_Renderer *main_renderer = NULL;
+SDL_Renderer *SDLCL_renderer = NULL;
 static SDL_Texture *main_texture = NULL;
 static SDL_GLContext main_glcontext = NULL;
-static SDL1_Surface *main_surface = NULL;
+SDL1_Surface *SDLCL_surface = NULL;
 
 static SDL_GLContext scale_glcontext = NULL;
 
@@ -610,14 +573,14 @@ static SDL_bool grab = SDL_FALSE;
 static char *window_title = NULL;
 static char *window_icon = NULL;
 
-static int scaling = 0;
-static int virtual_width, virtual_height;
+int SDLCL_scaling = 0;
+int SDLCL_virtual_width, SDLCL_virtual_height;
 static int real_width, real_height;
-static SDL_Rect scale_rect;
+SDL_Rect SDLCL_scale_rect;
 
 DECLSPEC void SDLCALL SDL_FreeSurface (SDL1_Surface *surface) {
 	SDL1_Proxy *proxy;
-	if (surface && surface != main_surface) {
+	if (surface && surface != SDLCL_surface) {
 		proxy = (SDL1_Proxy *)surface;
 		rSDL_FreeSurface(surface->sdl2_surface);
 		free(proxy);
@@ -626,9 +589,9 @@ DECLSPEC void SDLCALL SDL_FreeSurface (SDL1_Surface *surface) {
 
 static void close_window (void) {
 	SDL1_Surface *surface;
-	if (main_surface) {
-		surface = main_surface;
-		main_surface = NULL;
+	if (SDLCL_surface) {
+		surface = SDLCL_surface;
+		SDLCL_surface = NULL;
 		SDL_FreeSurface(surface);
 	}
 	if (scale_glcontext) {
@@ -643,9 +606,9 @@ static void close_window (void) {
 		rSDL_DestroyTexture(main_texture);
 		main_texture = NULL;
 	}
-	if (main_renderer) {
-		rSDL_DestroyRenderer(main_renderer);
-		main_renderer = NULL;
+	if (SDLCL_renderer) {
+		rSDL_DestroyRenderer(SDLCL_renderer);
+		SDLCL_renderer = NULL;
 	}
 	if (SDLCL_window) {
 		rSDL_DestroyWindow(SDLCL_window);
@@ -655,7 +618,7 @@ static void close_window (void) {
 
 void SDLCL_UpdateGrab (void) {
 	int showing = SDL_ShowCursor(SDL1_QUERY);
-	rSDL_ShowCursor((!scaling && showing) ? SDL_ENABLE : SDL_DISABLE);
+	rSDL_ShowCursor((!SDLCL_scaling && showing) ? SDL_ENABLE : SDL_DISABLE);
 	if (SDLCL_window)
 		rSDL_SetWindowGrab(SDLCL_window, (mode_flags & SDL1_FULLSCREEN) ? SDL_TRUE : grab);
 	if (/*grab &&*/ !showing)
@@ -706,17 +669,17 @@ static int init_scale (void) {
 	int texw, texh;
 	GLuint scale_texture;
 	void *texp;
-	scale_rect.w = (main_surface->w * real_height) / main_surface->h;
-	scale_rect.h = (main_surface->h * real_width) / main_surface->w;
-	if (scale_rect.w > real_width) scale_rect.w = real_width;
-	else scale_rect.h = real_height;
-	scale_rect.x = (real_width - scale_rect.w) / 2;
-	scale_rect.y = (real_height - scale_rect.h) / 2;
+	SDLCL_scale_rect.w = (SDLCL_surface->w * real_height) / SDLCL_surface->h;
+	SDLCL_scale_rect.h = (SDLCL_surface->h * real_width) / SDLCL_surface->w;
+	if (SDLCL_scale_rect.w > real_width) SDLCL_scale_rect.w = real_width;
+	else SDLCL_scale_rect.h = real_height;
+	SDLCL_scale_rect.x = (real_width - SDLCL_scale_rect.w) / 2;
+	SDLCL_scale_rect.y = (real_height - SDLCL_scale_rect.h) / 2;
 	if (mode_flags & SDL1_OPENGL) {
-		texw = next_pow2(main_surface->w);
-		texh = next_pow2(main_surface->h);
-		scale_texcoord[2] = (GLfloat)main_surface->w / (GLfloat)texw * 2.0;
-		scale_texcoord[5] = (GLfloat)main_surface->h / (GLfloat)texh * 2.0;
+		texw = next_pow2(SDLCL_surface->w);
+		texh = next_pow2(SDLCL_surface->h);
+		scale_texcoord[2] = (GLfloat)SDLCL_surface->w / (GLfloat)texw * 2.0;
+		scale_texcoord[5] = (GLfloat)SDLCL_surface->h / (GLfloat)texh * 2.0;
 		scale_glcontext = rSDL_GL_CreateContext(SDLCL_window);
 		if (!scale_glcontext) return 0;
 		scale_glBitmap = rSDL_GL_GetProcAddress("glBitmap");
@@ -769,7 +732,7 @@ static int init_scale (void) {
 		scale_glLoadIdentity();
 		scale_glMatrixMode(GL_TEXTURE);
 		scale_glLoadIdentity();
-		scale_glViewport(scale_rect.x, scale_rect.y, scale_rect.w, scale_rect.h);
+		scale_glViewport(SDLCL_scale_rect.x, SDLCL_scale_rect.y, SDLCL_scale_rect.w, SDLCL_scale_rect.h);
 		scale_glEnable(GL_TEXTURE_2D);
 		scale_glGenTextures(1, &scale_texture);
 		scale_glBindTexture(GL_TEXTURE_2D, scale_texture);
@@ -788,7 +751,7 @@ static int init_scale (void) {
 		if (!main_glFinish) return 0;
 		main_glViewport = rSDL_GL_GetProcAddress("glViewport");
 		if (!main_glViewport) return 0;
-		main_glViewport(0, 0, main_surface->w, main_surface->h);
+		main_glViewport(0, 0, SDLCL_surface->w, SDLCL_surface->h);
 	}
 	return 1;
 }
@@ -801,7 +764,7 @@ static void gl_scale (void) {
 	if (SDL_ShowCursor(SDL1_QUERY)) {
 		cursor = SDL_GetCursor();
 		SDL_GetMouseState(&x, &y);
-		scale_glViewport(0, 0, virtual_width, virtual_height);
+		scale_glViewport(0, 0, SDLCL_virtual_width, SDLCL_virtual_height);
 		scale_glEnable(GL_BLEND);
 		scale_glDisable(GL_TEXTURE_2D);
 		scale_glRasterPos2f(-1, 1);
@@ -809,9 +772,9 @@ static void gl_scale (void) {
 		scale_glDrawPixels(cursor->area.w, cursor->area.h, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, cursor->image);
 		scale_glEnable(GL_TEXTURE_2D);
 		scale_glDisable(GL_BLEND);
-		scale_glViewport(scale_rect.x, scale_rect.y, scale_rect.w, scale_rect.h);
+		scale_glViewport(SDLCL_scale_rect.x, SDLCL_scale_rect.y, SDLCL_scale_rect.w, SDLCL_scale_rect.h);
 	}
-	scale_glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, main_surface->w, main_surface->h);
+	scale_glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, SDLCL_surface->w, SDLCL_surface->h);
 	scale_glFinish();
 	scale_glClear(GL_COLOR_BUFFER_BIT);
 	scale_glDrawArrays(GL_TRIANGLES, 0, 3);
@@ -853,17 +816,17 @@ DECLSPEC SDL1_Surface *SDLCALL SDL_SetVideoMode (int width, int height, int bpp,
 			return NULL;
 		}
 	} else {
-		main_renderer = rSDL_CreateRenderer(SDLCL_window, -1, 0);
-		if (!main_renderer) {
+		SDLCL_renderer = rSDL_CreateRenderer(SDLCL_window, -1, 0);
+		if (!SDLCL_renderer) {
 			close_window();
 			return NULL;
 		}
-		rSDL_SetRenderDrawColor(main_renderer, 0, 0, 0, 255);
+		rSDL_SetRenderDrawColor(SDLCL_renderer, 0, 0, 0, 255);
 		rSDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
 		if (bpp > 8) {
-			main_texture = rSDL_CreateTexture(main_renderer, pixfmt, SDL_TEXTUREACCESS_STREAMING, width, height);
+			main_texture = rSDL_CreateTexture(SDLCL_renderer, pixfmt, SDL_TEXTUREACCESS_STREAMING, width, height);
 		} else {
-			main_texture = rSDL_CreateTexture(main_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
+			main_texture = rSDL_CreateTexture(SDLCL_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
 			rSDL_PixelFormatEnumToMasks(SDL_PIXELFORMAT_ARGB8888,
 				&tbpp,
 				&texture_format.Rmask,
@@ -882,16 +845,16 @@ DECLSPEC SDL1_Surface *SDLCALL SDL_SetVideoMode (int width, int height, int bpp,
 		}
 		rSDL_SetTextureBlendMode(main_texture, SDL_BLENDMODE_NONE);
 	}
-	main_surface = SDL_CreateRGBSurface(0, width, height, bpp, Rmask, Gmask, Bmask, Amask);
-	if (!main_surface) {
+	SDLCL_surface = SDL_CreateRGBSurface(0, width, height, bpp, Rmask, Gmask, Bmask, Amask);
+	if (!SDLCL_surface) {
 		close_window();
 		return NULL;
 	}
 	mode_flags = flags;
-	scaling = (real_width != width || real_height != height);
-	if (scaling) {
-		virtual_width = width;
-		virtual_height = height;
+	SDLCL_scaling = (real_width != width || real_height != height);
+	if (SDLCL_scaling) {
+		SDLCL_virtual_width = width;
+		SDLCL_virtual_height = height;
 		if (!init_scale()) {
 			close_window();
 			return NULL;
@@ -900,11 +863,11 @@ DECLSPEC SDL1_Surface *SDLCALL SDL_SetVideoMode (int width, int height, int bpp,
 	SDLCL_SetMouseRange(width, height);
 	SDLCL_UpdateGrab();
 	SDL_SetCursor(NULL);
-	return main_surface;
+	return SDLCL_surface;
 }
 
 DECLSPEC SDL1_Surface *SDLCALL SDL_GetVideoSurface (void) {
-	return main_surface;
+	return SDLCL_surface;
 }
 
 #define SDL1_LOGPAL  0x01
@@ -924,7 +887,7 @@ DECLSPEC int SDLCALL SDL_SetPalette (SDL1_Surface *surface, int flags, SDL1_Colo
 		if (rSDL_SetPaletteColors(surface->sdl2_surface->format->palette, colors2, firstcolor, ncolors)) return 0;
 		memcpy(surface->format->palette->colors + firstcolor, colors, ncolors * sizeof(SDL1_Color));
 	}
-	if ((flags & SDL1_PHYSPAL) && surface == main_surface) {
+	if ((flags & SDL1_PHYSPAL) && surface == SDLCL_surface) {
 		if (firstcolor > 256 - ncolors) return 0;
 		for (i = 0; i < ncolors; i++)
 			physical_palette[firstcolor + i] = SDL_MapRGB(&texture_format, colors[i].r, colors[i].g, colors[i].b);
@@ -981,8 +944,8 @@ DECLSPEC SDL1_Surface *SDLCALL SDL_ConvertSurface (SDL1_Surface *src, SDL1_Pixel
 }
 
 DECLSPEC SDL1_Surface *SDL_DisplayFormat (SDL1_Surface *surface) {
-	if (!main_surface) return NULL;
-	return SDL_ConvertSurface(surface, main_surface->format, 0);
+	if (!SDLCL_surface) return NULL;
+	return SDL_ConvertSurface(surface, SDLCL_surface->format, 0);
 }
 
 DECLSPEC SDL1_Surface *SDL_DisplayFormatAlpha (SDL1_Surface *surface) {
@@ -1002,34 +965,34 @@ DECLSPEC int SDLCALL SDL_Flip (SDL1_Surface *screen) {
 	void *texpix;
 	int texpitch, i, j;
 	(void)screen;
-	if (!main_renderer) return 0;
-	if (SDL_LockSurface(main_surface)) return -1;
+	if (!SDLCL_renderer) return 0;
+	if (SDL_LockSurface(SDLCL_surface)) return -1;
 	if (rSDL_LockTexture(main_texture, NULL, &texpix, &texpitch)) {
-		SDL_UnlockSurface(main_surface);
+		SDL_UnlockSurface(SDLCL_surface);
 		return -1;
 	}
-	if (main_surface->format->BitsPerPixel > 8) {
-		for (i = 0; i < main_surface->h; i++)
+	if (SDLCL_surface->format->BitsPerPixel > 8) {
+		for (i = 0; i < SDLCL_surface->h; i++)
 			memcpy(((Uint8 *)texpix) + i * texpitch,
-				main_surface->pixels + i * main_surface->pitch,
-				main_surface->w * main_surface->format->BytesPerPixel);
+				SDLCL_surface->pixels + i * SDLCL_surface->pitch,
+				SDLCL_surface->w * SDLCL_surface->format->BytesPerPixel);
 	} else {
-		for (i = 0; i < main_surface->h; i++) {
-			src = main_surface->pixels + i * main_surface->pitch;
+		for (i = 0; i < SDLCL_surface->h; i++) {
+			src = SDLCL_surface->pixels + i * SDLCL_surface->pitch;
 			dest = (Uint32 *)(((Uint8 *)texpix) + i * texpitch);
-			for (j = 0; j < main_surface->w; j++)
+			for (j = 0; j < SDLCL_surface->w; j++)
 				dest[j] = physical_palette[src[j]];
 		}
 	}
 	/* TODO: Draw mouse cursor when scaling */
 	rSDL_UnlockTexture(main_texture);
-	SDL_UnlockSurface(main_surface);
-	rSDL_RenderClear(main_renderer);
-	if (scaling)
-		rSDL_RenderCopy(main_renderer, main_texture, NULL, &scale_rect);
+	SDL_UnlockSurface(SDLCL_surface);
+	rSDL_RenderClear(SDLCL_renderer);
+	if (SDLCL_scaling)
+		rSDL_RenderCopy(SDLCL_renderer, main_texture, NULL, &SDLCL_scale_rect);
 	else
-		rSDL_RenderCopy(main_renderer, main_texture, NULL, NULL);
-	rSDL_RenderPresent(main_renderer);
+		rSDL_RenderCopy(SDLCL_renderer, main_texture, NULL, NULL);
+	rSDL_RenderPresent(SDLCL_renderer);
 	return 0;
 }
 
@@ -1079,7 +1042,7 @@ DECLSPEC void *SDLCALL SDL_GL_GetProcAddress (const char *proc) {
 }
 
 DECLSPEC void SDLCALL SDL_GL_SwapBuffers (void) {
-	if (scaling) gl_scale();
+	if (SDLCL_scaling) gl_scale();
 	rSDL_GL_SwapWindow(SDLCL_window);
 }
 
@@ -1318,4 +1281,286 @@ DECLSPEC int SDLCALL SDL_GetWMInfo (SDL1_SysWMinfo *info) {
 #endif
 	}
 	return 0;
+}
+
+DECLSPEC int SDL_SoftStretch (SDL1_Surface *src, SDL1_Rect *srcrect, SDL1_Surface *dst, SDL1_Rect *dstrect) {
+	SDL_Rect srcrect2, dstrect2;
+	SDL_Rect *srcptr = NULL;
+	SDL_Rect *dstptr = NULL;
+	if (srcrect) {
+		srcrect2.x = srcrect->x;
+		srcrect2.y = srcrect->y;
+		srcrect2.w = srcrect->w;
+		srcrect2.h = srcrect->h;
+		srcptr = &srcrect2;
+	}
+	if (dstrect) {
+		dstrect2.x = dstrect->x;
+		dstrect2.y = dstrect->y;
+		dstrect2.w = dstrect->w;
+		dstrect2.h = dstrect->h;
+		dstptr = &dstrect2;
+	}
+	return rSDL_SoftStretch(src->sdl2_surface, srcptr, dst->sdl2_surface, dstptr);
+}
+
+#if defined(SDL_VIDEO_DRIVER_X11)
+#include <X11/Xutil.h>
+#include <X11/keysym.h>
+
+static SDL1Key ODD_keymap[256];
+static SDL1Key MISC_keymap[256];
+
+static void *x11_lib = NULL;
+static KeyCode (*rXKeysymToKeycode) (Display *a, KeySym b) = NULL;
+#if NeedWidePrototypes
+static KeySym (*rXKeycodeToKeysym) (Display *a, unsigned int b, int c) = NULL;
+#else
+static KeySym (*rXKeycodeToKeysym) (Display *a, KeyCode b, int c) = NULL;
+#endif
+static int (*rXLookupString) (XKeyEvent *a, char *b, int c, KeySym *d, XComposeStatus *e) = NULL;
+static XModifierKeymap *(*rXGetModifierMapping) (Display *a) = NULL;
+static int (*rXFreeModifiermap) (XModifierKeymap *a) = NULL;
+
+static int init_x11_data (void) {
+	static int init = 0;
+	int i;
+	if (init) return 1;
+
+	x11_lib = SDL_LoadObject("libX11.so.6");
+	if (!x11_lib) return 0;
+	rXKeysymToKeycode = SDL_LoadFunction(x11_lib, "XKeysymToKeycode");
+	rXKeycodeToKeysym = SDL_LoadFunction(x11_lib, "XKeycodeToKeysym");
+	rXLookupString = SDL_LoadFunction(x11_lib, "XLookupString");
+	rXGetModifierMapping = SDL_LoadFunction(x11_lib, "XGetModifierMapping");
+	rXFreeModifiermap = SDL_LoadFunction(x11_lib, "XFreeModifiermap");
+	if (!rXKeysymToKeycode || !rXKeycodeToKeysym || !rXLookupString || !rXGetModifierMapping || !rXFreeModifiermap) {
+		SDL_UnloadObject(x11_lib);
+		return 0;
+	}
+
+	/* Odd keys used in international keyboards */
+	for (i = 0; i < 256; i++) ODD_keymap[i] = SDLK1_UNKNOWN;
+	/* These X keysyms have 0xFE as the high byte */
+	ODD_keymap[XK_dead_grave&0xFF] = SDLK1_COMPOSE;
+	ODD_keymap[XK_dead_acute&0xFF] = SDLK1_COMPOSE;
+	ODD_keymap[XK_dead_tilde&0xFF] = SDLK1_COMPOSE;
+	ODD_keymap[XK_dead_macron&0xFF] = SDLK1_COMPOSE;
+	ODD_keymap[XK_dead_breve&0xFF] = SDLK1_COMPOSE;
+	ODD_keymap[XK_dead_abovedot&0xFF] = SDLK1_COMPOSE;
+	ODD_keymap[XK_dead_diaeresis&0xFF] = SDLK1_COMPOSE;
+	ODD_keymap[XK_dead_abovering&0xFF] = SDLK1_COMPOSE;
+	ODD_keymap[XK_dead_doubleacute&0xFF] = SDLK1_COMPOSE;
+	ODD_keymap[XK_dead_caron&0xFF] = SDLK1_COMPOSE;
+	ODD_keymap[XK_dead_cedilla&0xFF] = SDLK1_COMPOSE;
+	ODD_keymap[XK_dead_ogonek&0xFF] = SDLK1_COMPOSE;
+	ODD_keymap[XK_dead_iota&0xFF] = SDLK1_COMPOSE;
+	ODD_keymap[XK_dead_voiced_sound&0xFF] = SDLK1_COMPOSE;
+	ODD_keymap[XK_dead_semivoiced_sound&0xFF] = SDLK1_COMPOSE;
+	ODD_keymap[XK_dead_belowdot&0xFF] = SDLK1_COMPOSE;
+#ifdef XK_dead_hook
+	ODD_keymap[XK_dead_hook&0xFF] = SDLK1_COMPOSE;
+#endif
+#ifdef XK_dead_horn
+	ODD_keymap[XK_dead_horn&0xFF] = SDLK1_COMPOSE;
+#endif
+
+#ifdef XK_dead_circumflex
+	ODD_keymap[XK_dead_circumflex&0xFF] = SDLK1_CARET;
+#endif
+#ifdef XK_ISO_Level3_Shift
+	ODD_keymap[XK_ISO_Level3_Shift&0xFF] = SDLK1_MODE; /* "Alt Gr" key */
+#endif
+
+	/* Map the miscellaneous keys */
+	for (i = 0; i < 256; i++) MISC_keymap[i] = SDLK1_UNKNOWN;
+	/* These X keysyms have 0xFF as the high byte */
+	MISC_keymap[XK_BackSpace&0xFF] = SDLK1_BACKSPACE;
+	MISC_keymap[XK_Tab&0xFF] = SDLK1_TAB;
+	MISC_keymap[XK_Clear&0xFF] = SDLK1_CLEAR;
+	MISC_keymap[XK_Return&0xFF] = SDLK1_RETURN;
+	MISC_keymap[XK_Pause&0xFF] = SDLK1_PAUSE;
+	MISC_keymap[XK_Escape&0xFF] = SDLK1_ESCAPE;
+	MISC_keymap[XK_Delete&0xFF] = SDLK1_DELETE;
+
+	MISC_keymap[XK_KP_0&0xFF] = SDLK1_KP0; /* Keypad 0-9 */
+	MISC_keymap[XK_KP_1&0xFF] = SDLK1_KP1;
+	MISC_keymap[XK_KP_2&0xFF] = SDLK1_KP2;
+	MISC_keymap[XK_KP_3&0xFF] = SDLK1_KP3;
+	MISC_keymap[XK_KP_4&0xFF] = SDLK1_KP4;
+	MISC_keymap[XK_KP_5&0xFF] = SDLK1_KP5;
+	MISC_keymap[XK_KP_6&0xFF] = SDLK1_KP6;
+	MISC_keymap[XK_KP_7&0xFF] = SDLK1_KP7;
+	MISC_keymap[XK_KP_8&0xFF] = SDLK1_KP8;
+	MISC_keymap[XK_KP_9&0xFF] = SDLK1_KP9;
+	MISC_keymap[XK_KP_Insert&0xFF] = SDLK1_KP0;
+	MISC_keymap[XK_KP_End&0xFF] = SDLK1_KP1;
+	MISC_keymap[XK_KP_Down&0xFF] = SDLK1_KP2;
+	MISC_keymap[XK_KP_Page_Down&0xFF] = SDLK1_KP3;
+	MISC_keymap[XK_KP_Left&0xFF] = SDLK1_KP4;
+	MISC_keymap[XK_KP_Begin&0xFF] = SDLK1_KP5;
+	MISC_keymap[XK_KP_Right&0xFF] = SDLK1_KP6;
+	MISC_keymap[XK_KP_Home&0xFF] = SDLK1_KP7;
+	MISC_keymap[XK_KP_Up&0xFF] = SDLK1_KP8;
+	MISC_keymap[XK_KP_Page_Up&0xFF] = SDLK1_KP9;
+	MISC_keymap[XK_KP_Delete&0xFF] = SDLK1_KP_PERIOD;
+	MISC_keymap[XK_KP_Decimal&0xFF] = SDLK1_KP_PERIOD;
+	MISC_keymap[XK_KP_Divide&0xFF] = SDLK1_KP_DIVIDE;
+	MISC_keymap[XK_KP_Multiply&0xFF] = SDLK1_KP_MULTIPLY;
+	MISC_keymap[XK_KP_Subtract&0xFF] = SDLK1_KP_MINUS;
+	MISC_keymap[XK_KP_Add&0xFF] = SDLK1_KP_PLUS;
+	MISC_keymap[XK_KP_Enter&0xFF] = SDLK1_KP_ENTER;
+	MISC_keymap[XK_KP_Equal&0xFF] = SDLK1_KP_EQUALS;
+
+	MISC_keymap[XK_Up&0xFF] = SDLK1_UP;
+	MISC_keymap[XK_Down&0xFF] = SDLK1_DOWN;
+	MISC_keymap[XK_Right&0xFF] = SDLK1_RIGHT;
+	MISC_keymap[XK_Left&0xFF] = SDLK1_LEFT;
+	MISC_keymap[XK_Insert&0xFF] = SDLK1_INSERT;
+	MISC_keymap[XK_Home&0xFF] = SDLK1_HOME;
+	MISC_keymap[XK_End&0xFF] = SDLK1_END;
+	MISC_keymap[XK_Page_Up&0xFF] = SDLK1_PAGEUP;
+	MISC_keymap[XK_Page_Down&0xFF] = SDLK1_PAGEDOWN;
+
+	MISC_keymap[XK_F1&0xFF] = SDLK1_F1;
+	MISC_keymap[XK_F2&0xFF] = SDLK1_F2;
+	MISC_keymap[XK_F3&0xFF] = SDLK1_F3;
+	MISC_keymap[XK_F4&0xFF] = SDLK1_F4;
+	MISC_keymap[XK_F5&0xFF] = SDLK1_F5;
+	MISC_keymap[XK_F6&0xFF] = SDLK1_F6;
+	MISC_keymap[XK_F7&0xFF] = SDLK1_F7;
+	MISC_keymap[XK_F8&0xFF] = SDLK1_F8;
+	MISC_keymap[XK_F9&0xFF] = SDLK1_F9;
+	MISC_keymap[XK_F10&0xFF] = SDLK1_F10;
+	MISC_keymap[XK_F11&0xFF] = SDLK1_F11;
+	MISC_keymap[XK_F12&0xFF] = SDLK1_F12;
+	MISC_keymap[XK_F13&0xFF] = SDLK1_F13;
+	MISC_keymap[XK_F14&0xFF] = SDLK1_F14;
+	MISC_keymap[XK_F15&0xFF] = SDLK1_F15;
+
+	MISC_keymap[XK_Num_Lock&0xFF] = SDLK1_NUMLOCK;
+	MISC_keymap[XK_Caps_Lock&0xFF] = SDLK1_CAPSLOCK;
+	MISC_keymap[XK_Scroll_Lock&0xFF] = SDLK1_SCROLLOCK;
+	MISC_keymap[XK_Shift_R&0xFF] = SDLK1_RSHIFT;
+	MISC_keymap[XK_Shift_L&0xFF] = SDLK1_LSHIFT;
+	MISC_keymap[XK_Control_R&0xFF] = SDLK1_RCTRL;
+	MISC_keymap[XK_Control_L&0xFF] = SDLK1_LCTRL;
+	MISC_keymap[XK_Alt_R&0xFF] = SDLK1_RALT;
+	MISC_keymap[XK_Alt_L&0xFF] = SDLK1_LALT;
+	MISC_keymap[XK_Meta_R&0xFF] = SDLK1_RMETA;
+	MISC_keymap[XK_Meta_L&0xFF] = SDLK1_LMETA;
+	MISC_keymap[XK_Super_L&0xFF] = SDLK1_LSUPER; /* Left "Windows" */
+	MISC_keymap[XK_Super_R&0xFF] = SDLK1_RSUPER; /* Right "Windows */
+	MISC_keymap[XK_Mode_switch&0xFF] = SDLK1_MODE; /* "Alt Gr" key */
+	MISC_keymap[XK_Multi_key&0xFF] = SDLK1_COMPOSE; /* Multi-key compose */
+
+	MISC_keymap[XK_Help&0xFF] = SDLK1_HELP;
+	MISC_keymap[XK_Print&0xFF] = SDLK1_PRINT;
+	MISC_keymap[XK_Sys_Req&0xFF] = SDLK1_SYSREQ;
+	MISC_keymap[XK_Break&0xFF] = SDLK1_BREAK;
+	MISC_keymap[XK_Menu&0xFF] = SDLK1_MENU;
+	MISC_keymap[XK_Hyper_R&0xFF] = SDLK1_MENU; /* Windows "Menu" key */
+
+	init = 1;
+	return 1;
+}
+
+/* X11 modifier masks for various keys */
+static unsigned int meta_l_mask, meta_r_mask, alt_l_mask, alt_r_mask;
+static unsigned int num_mask, mode_switch_mask;
+
+static void get_modifier_masks (Display *display) {
+	static int got_masks = 0;
+	int i, j, n;
+	XModifierKeymap *xmods;
+	if (got_masks) return;
+	xmods = rXGetModifierMapping(display);
+	n = xmods->max_keypermod;
+	for (i = 3; i < 8; i++) {
+		for (j = 0; j < n; j++) {
+			KeyCode kc = xmods->modifiermap[i * n + j];
+			KeySym ks = rXKeycodeToKeysym(display, kc, 0);
+			unsigned int mask = 1 << i;
+			switch (ks) {
+				case XK_Num_Lock: num_mask = mask; break;
+				case XK_Alt_L: alt_l_mask = mask; break;
+				case XK_Alt_R: alt_r_mask = mask; break;
+				case XK_Meta_L: meta_l_mask = mask; break;
+				case XK_Meta_R: meta_r_mask = mask; break;
+				case XK_Mode_switch: mode_switch_mask = mask; break;
+			}
+		}
+	}
+	rXFreeModifiermap(xmods);
+	got_masks = 1;
+}
+
+DECLSPEC Uint16 SDLCALL X11_KeyToUnicode (SDL1Key keysym, SDL1Mod modifiers) {
+	Display *display;
+	SDL1_SysWMinfo info;
+	char keybuf[32];
+	int i;
+	KeySym xsym = 0;
+	XKeyEvent xkey;
+	Uint16 unicode;
+
+	if (!init_x11_data()) return 0;
+	info.version.major = SDL1_MAJOR_VERSION;
+	info.version.minor = SDL1_MINOR_VERSION;
+	info.version.patch = SDL1_PATCHLEVEL;
+	if (!SDL_GetWMInfo(&info)) return 0;
+	if (info.subsystem != SDL1_SYSWM_X11) return 0;
+	display = info.info.x11.display;
+
+	memset(&xkey, 0, sizeof(xkey));
+	xkey.display = display;
+
+	xsym = keysym; /* last resort if not found */
+	for (i = 0; i < 256; i++) {
+		if (MISC_keymap[i] == keysym) {
+			xsym = 0xFF00 | i;
+			break;
+		} else if (ODD_keymap[i] == keysym) {
+			xsym = 0xFE00 | i;
+			break;
+		}
+	}
+
+	xkey.keycode = rXKeysymToKeycode(xkey.display, xsym);
+
+	get_modifier_masks(display);
+	if (modifiers & KMOD1_SHIFT) xkey.state |= ShiftMask;
+	if (modifiers & KMOD1_CAPS) xkey.state |= LockMask;
+	if (modifiers & KMOD1_CTRL) xkey.state |= ControlMask;
+	if (modifiers & KMOD1_MODE) xkey.state |= mode_switch_mask;
+	if (modifiers & KMOD1_LALT) xkey.state |= alt_l_mask;
+	if (modifiers & KMOD1_RALT) xkey.state |= alt_r_mask;
+	if (modifiers & KMOD1_LMETA) xkey.state |= meta_l_mask;
+	if (modifiers & KMOD1_RMETA) xkey.state |= meta_r_mask;
+	if (modifiers & KMOD1_NUM) xkey.state |= num_mask;
+
+	unicode = 0;
+	if (rXLookupString(&xkey, keybuf, sizeof(keybuf), NULL, NULL))
+		unicode = (unsigned char)keybuf[0];
+	return unicode;
+}
+#else
+DECLSPEC Uint16 SDLCALL X11_KeyToUnicode (SDL1Key keysym, SDL1Mod modifiers) {
+	(void)keysym;
+	(void)modifiers;
+	return 0;
+}
+#endif
+
+/* These functions are used internally for the implementation of SDL_OPENGLBLIT. */
+/* Since we don't implement it, just do nothing here. */
+DECLSPEC void SDLCALL SDL_GL_UpdateRects (int numrects, SDL_Rect *rects) {
+	(void)numrects;
+	(void)rects;
+}
+
+DECLSPEC void SDLCALL SDL_GL_Lock (void) {
+}
+
+DECLSPEC void SDLCALL SDL_GL_Unlock (void) {
 }

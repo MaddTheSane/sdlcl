@@ -25,6 +25,7 @@
 
 #include "SDL2.h"
 
+#define SDL1_IGNORE  0
 #define SDL1_DISABLE 0
 #define SDL1_ENABLE  1
 #define SDL1_QUERY   -1
@@ -44,6 +45,11 @@ typedef enum {
 	KMOD1_MODE     = 0x4000,
 	KMOD1_RESERVED = 0x8000
 } SDL1Mod;
+
+#define KMOD1_CTRL  (KMOD1_LCTRL|KMOD1_RCTRL)
+#define KMOD1_SHIFT (KMOD1_LSHIFT|KMOD1_RSHIFT)
+#define KMOD1_ALT   (KMOD1_LALT|KMOD1_RALT)
+#define KMOD1_META  (KMOD1_LMETA|KMOD1_RMETA)
 
 typedef enum {
 	SDLK1_UNKNOWN      = 0,

@@ -28,6 +28,14 @@
 #include "audio.h"
 #include "rwops.h"
 
+DECLSPEC int SDLCALL SDL_AudioInit (const char *driver_name) {
+	return rSDL_AudioInit(driver_name);
+}
+
+DECLSPEC void SDLCALL SDL_AudioQuit (void) {
+	rSDL_AudioQuit();
+}
+
 typedef struct SDL1_AudioSpec {
 	int freq;
 	Uint16 format;
@@ -87,6 +95,21 @@ DECLSPEC int SDLCALL SDL_OpenAudio (SDL1_AudioSpec *desired, SDL1_AudioSpec *obt
 
 DECLSPEC void SDLCALL SDL_PauseAudio (int pause_on) {
 	rSDL_PauseAudio(pause_on);
+}
+
+typedef enum {
+	SDL1_AUDIO_STOPPED = 0,
+	SDL1_AUDIO_PLAYING,
+	SDL1_AUDIO_PAUSED
+} SDL1_audiostatus;
+
+DECLSPEC SDL1_audiostatus SDLCALL SDL_GetAudioStatus (void) {
+	switch (rSDL_GetAudioStatus()) {
+		case SDL_AUDIO_STOPPED: return SDL1_AUDIO_STOPPED;
+		case SDL_AUDIO_PLAYING: return SDL1_AUDIO_PLAYING;
+		case SDL_AUDIO_PAUSED: return SDL1_AUDIO_PAUSED;
+		default: return SDL1_AUDIO_STOPPED;
+	}
 }
 
 DECLSPEC void SDLCALL SDL_MixAudio (Uint8 *dst, Uint8 *src, Uint32 len, int volume) {

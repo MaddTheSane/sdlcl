@@ -20,18 +20,13 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#include <stdlib.h>
+#ifndef SDLCL_LOADSO_H
+#define SDLCL_LOADSO_H
 
 #include "SDL2.h"
 
-size_t SDL_iconv(SDL_iconv_t cd,
-                 const char **inbuf, size_t *inbytesleft,
-                 char **outbuf, size_t *outbytesleft)
-{
-	return rSDL_iconv(cd, inbuf, inbytesleft, outbuf, outbytesleft);
-}
+extern DECLSPEC void *SDLCALL SDL_LoadObject (const char *sofile);
+extern DECLSPEC void *SDLCALL SDL_LoadFunction (void *handle, const char *name);
+extern DECLSPEC void SDLCALL SDL_UnloadObject (void *handle);
 
-char *SDL_iconv_string(const char *tocode, const char *fromcode, const char *inbuf, size_t inbytesleft)
-{
-	return rSDL_iconv_string(tocode, fromcode, inbuf, inbytesleft);
-}
+#endif

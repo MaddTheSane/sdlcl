@@ -34,8 +34,12 @@ SDL2_SYMBOL(SDL_SetHint, SDL_bool, (const char *name, const char *value))
 /* Timer subsystem */
 SDL2_SYMBOL(SDL_GetTicks, Uint32, (void))
 SDL2_SYMBOL(SDL_Delay, void, (Uint32 ms))
+SDL2_SYMBOL(SDL_AddTimer, SDL_TimerID, (Uint32 interval, SDL_TimerCallback callback, void *param))
+SDL2_SYMBOL(SDL_RemoveTimer, SDL_bool, (SDL_TimerID id))
 
 /* Video subsystem */
+SDL2_SYMBOL(SDL_VideoInit, int, (const char *driver_name))
+SDL2_SYMBOL(SDL_VideoQuit, void, (void))
 SDL2_SYMBOL(SDL_GetCurrentVideoDriver, const char *, (void))
 SDL2_SYMBOL(SDL_GetNumVideoDisplays, int, (void))
 SDL2_SYMBOL(SDL_GetNumDisplayModes, int, (int displayIndex))
@@ -102,6 +106,8 @@ SDL2_SYMBOL(SDL_CreateTexture, SDL_Texture *, (SDL_Renderer *renderer, Uint32 fo
 SDL2_SYMBOL(SDL_SetTextureBlendMode, int, (SDL_Texture *texture, SDL_BlendMode blendMode))
 SDL2_SYMBOL(SDL_LockTexture, int, (SDL_Texture *texture, const SDL_Rect *rect, void **pixels, int *pitch))
 SDL2_SYMBOL(SDL_UnlockTexture, void, (SDL_Texture *texture))
+SDL2_SYMBOL(SDL_UpdateTexture, int, (SDL_Texture *texture, const SDL_Rect *rect, const void *pixels, int pitch))
+SDL2_SYMBOL(SDL_UpdateYUVTexture, int, (SDL_Texture *texture, const SDL_Rect *rect, const Uint8* Yplane, int Ypitch, const Uint8* Uplane, int Upitch, const Uint8* Vplane, int Vpitch))
 SDL2_SYMBOL(SDL_DestroyTexture, void, (SDL_Texture *texture))
 
 SDL2_SYMBOL(SDL_GL_LoadLibrary, int, (const char *path))
@@ -115,9 +121,14 @@ SDL2_SYMBOL(SDL_GL_DeleteContext, void, (SDL_GLContext context))
 
 SDL2_SYMBOL(SDL_GetWindowWMInfo, SDL_bool, (SDL_Window *window, SDL_SysWMinfo *info))
 
+SDL2_SYMBOL(SDL_SoftStretch, int, (SDL_Surface *src, const SDL_Rect *srcrect, SDL_Surface *dst, const SDL_Rect *dstrect))
+
 /* Audio subsystem */
+SDL2_SYMBOL(SDL_AudioInit, int, (const char *driver_name))
+SDL2_SYMBOL(SDL_AudioQuit, void, (void))
 SDL2_SYMBOL(SDL_OpenAudio, int, (SDL_AudioSpec *desired, SDL_AudioSpec *obtained))
 SDL2_SYMBOL(SDL_PauseAudio, void, (int pause_on))
+SDL2_SYMBOL(SDL_GetAudioStatus, SDL_AudioStatus, (void))
 SDL2_SYMBOL(SDL_MixAudio, void, (Uint8 *dst, const Uint8 *src, Uint32 len, int volume))
 SDL2_SYMBOL(SDL_LockAudio, void, (void))
 SDL2_SYMBOL(SDL_UnlockAudio, void, (void))
@@ -132,6 +143,8 @@ SDL2_SYMBOL(SDL_FreeWAV, void, (Uint8 *audio_buf))
 /* Events subsystem */
 SDL2_SYMBOL(SDL_JoystickEventState, int, (int state))
 SDL2_SYMBOL(SDL_GetModState, SDL_Keymod, (void))
+SDL2_SYMBOL(SDL_SetModState, void, (SDL_Keymod modstate))
+SDL2_SYMBOL(SDL_GetKeyName, const char *, (SDL_Keycode key))
 SDL2_SYMBOL(SDL_GetMouseState, Uint32, (int *x, int *y))
 SDL2_SYMBOL(SDL_GetRelativeMouseState, Uint32, (int *x, int *y))
 SDL2_SYMBOL(SDL_StartTextInput, void, (void))
@@ -143,6 +156,7 @@ SDL2_SYMBOL(SDL_PumpEvents, void, (void))
 SDL2_SYMBOL(SDL_PushEvent, int, (SDL_Event * event))
 SDL2_SYMBOL(SDL_SetEventFilter, void, (SDL_EventFilter filter, void *userdata))
 SDL2_SYMBOL(SDL_GetEventFilter, SDL_bool, (SDL_EventFilter *filter, void **userdata))
+SDL2_SYMBOL(SDL_EventState, Uint8, (Uint32 type, int state))
 
 /* Joystick subsystem */
 SDL2_SYMBOL(SDL_NumJoysticks, int, (void))
@@ -216,6 +230,18 @@ SDL2_SYMBOL(SDL_HasRDTSC, SDL_bool, (void))
 SDL2_SYMBOL(SDL_HasSSE, SDL_bool, (void))
 SDL2_SYMBOL(SDL_HasSSE2, SDL_bool, (void))
 
-/* stdlib functions */
-SDL2_SYMBOL(SDL_iconv_string, char*, (const char *tocode, const char *fromcode, const char *inbuf, size_t inbytesleft))
+/* Standard library functions */
+SDL2_SYMBOL(SDL_ltoa, char *, (long value, char *str, int radix))
+SDL2_SYMBOL(SDL_ultoa, char *, (unsigned long value, char *str, int radix))
+SDL2_SYMBOL(SDL_lltoa, char *, (Sint64 value, char *str, int radix))
+SDL2_SYMBOL(SDL_ulltoa, char *, (Uint64 value, char *str, int radix))
+SDL2_SYMBOL(SDL_strlcpy, size_t, (SDL_OUT_Z_CAP(maxlen) char *dst, const char *src, size_t maxlen))
+SDL2_SYMBOL(SDL_strlcat, size_t, (SDL_INOUT_Z_CAP(maxlen) char *dst, const char *src, size_t maxlen))
+SDL2_SYMBOL(SDL_strrev, char *, (char *str))
+SDL2_SYMBOL(SDL_strupr, char *, (char *str))
+SDL2_SYMBOL(SDL_strlwr, char *, (char *str))
+
+SDL2_SYMBOL(SDL_iconv_open, SDL_iconv_t, (const char *tocode, const char *fromcode))
+SDL2_SYMBOL(SDL_iconv_close, int, (SDL_iconv_t cd))
 SDL2_SYMBOL(SDL_iconv, size_t, (SDL_iconv_t cd, const char **inbuf, size_t *inbytesleft, char **outbuf, size_t *outbytesleft))
+SDL2_SYMBOL(SDL_iconv_string, char *, (const char *tocode, const char *fromcode, const char *inbuf, size_t inbytesleft))

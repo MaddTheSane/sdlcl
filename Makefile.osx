@@ -12,9 +12,9 @@ LIB_CURRENT_VER ?= 12.4
 LDFLAGS += -dynamiclib -compatibility_version $(LIB_COMPAT_VER) -current_version \
 $(LIB_CURRENT_VER) -install_name $(LIB_INSTALL_NAME) -ldl 
 TARGET = libSDL-1.2.0.dylib
-SRCS = main.c video.c cursor.c audio.c audiocvt.c timer.c events.c keyboard.c \
-	mouse.c joystick.c rwops.c thread.c cpuinfo.c version.c cdrom.c \
-	loadso.c iconv.c
+SRCS = main.c video.c yuv.c cursor.c audio.c audiocvt.c timer.c events.c \
+	keyboard.c mouse.c joystick.c rwops.c thread.c cpuinfo.c version.c \
+	cdrom.c loadso.c stdlib.c
 OBJS = $(SRCS:.c=.o)
 HEADERS = redir.h unredir.h
 
