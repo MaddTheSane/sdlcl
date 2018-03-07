@@ -14,7 +14,7 @@ $(LIB_CURRENT_VER) -install_name $(LIB_INSTALL_NAME) -ldl
 TARGET = libSDL-1.2.0.dylib
 SRCS = main.c video.c cursor.c audio.c audiocvt.c timer.c events.c keyboard.c \
 	mouse.c joystick.c rwops.c thread.c cpuinfo.c version.c cdrom.c \
-	loadso.c
+	loadso.c iconv.c
 OBJS = $(SRCS:.c=.o)
 HEADERS = redir.h unredir.h
 

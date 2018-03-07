@@ -215,3 +215,7 @@ SDL2_SYMBOL(SDL_HasMMX, SDL_bool, (void))
 SDL2_SYMBOL(SDL_HasRDTSC, SDL_bool, (void))
 SDL2_SYMBOL(SDL_HasSSE, SDL_bool, (void))
 SDL2_SYMBOL(SDL_HasSSE2, SDL_bool, (void))
+
+/* stdlib functions */
+SDL2_SYMBOL(SDL_iconv_string, char*, (const char *tocode, const char *fromcode, const char *inbuf, size_t inbytesleft))
+SDL2_SYMBOL(SDL_iconv, size_t, (SDL_iconv_t cd, const char **inbuf, size_t *inbytesleft, char **outbuf, size_t *outbytesleft))
