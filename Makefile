@@ -25,7 +25,9 @@ redir.h: symbols.x
 unredir.h: symbols.x
 	sed 's/SDL2_SYMBOL(\([^,]*\),.*/#undef \1/' $^ > $@
 
+ifneq ($(MAKECMDGOALS),clean)
 include $(SRCS:.c=.d)
+endif
 
 .PHONY: clean
 clean:
