@@ -43,3 +43,42 @@ endif
 .PHONY: clean
 clean:
 	-$(RM) $(TARGET) $(OBJS) $(SRCS:.c=.d) $(HEADERS)
+
+help:
+	@echo This Mac OS X Makefile has a lot of extra options to help build a compatible
+	@echo SDL 1.2 library for your application. You can use environment variables to
+	@echo customize the created library.
+	@echo 
+	@echo SDL2_CFLAGS
+	@echo '  C flags passed in to locate SDL2 headers.'
+	@echo '  Default: `sdl2-config --cflags`'
+	@echo '  Current: $(SDL2_CFLAGS)'
+	@echo
+	@echo DLLOADNAME
+	@echo "  Library name or path used to 'dlopen' SDL2."
+	@echo '  Default: libSDL2-2.0.0.dylib'
+	@echo '  Current: $(DLLOADNAME)'
+	@echo
+	@echo LIB_INSTALL_NAME
+	@echo '  The install name of this SDL 1.2 bridge. It is a good idea to have it match'
+	@echo '  what your application or library is looking for.'
+	@echo '  If unsure, you can use "otool -L" on your app or library to get the install'
+	@echo '  name.'
+	@echo '  Default: /usr/local/lib/libSDL-1.2.0.dylib'
+	@echo '  Current: $(LIB_INSTALL_NAME)'
+	@echo
+	@echo LIB_COMPAT_VER
+	@echo '  The compatibility version of this SDL 1.2 bridge. This number MUST MATCH'
+	@echo '  what your application or library is looking for, otherwise it will not load.'
+	@echo '  If unsure, you can use "otool -L" on your app or library to get the'
+	@echo '  compatibility version.'
+	@echo '  Default: 12.0'
+	@echo '  Current: $(LIB_COMPAT_VER)'
+	@echo
+	@echo LIB_CURRENT_VER
+	@echo '  The current version of this SDL 1.2 bridge. It is a good idea to have it'
+	@echo '  match what your application or library is looking for.'
+	@echo '  If unsure, you can use "otool -L" on your app or library to get the current'
+	@echo '  version.'
+	@echo '  Default: 12.4'
+	@echo '  Current: $(LIB_CURRENT_VER)'
