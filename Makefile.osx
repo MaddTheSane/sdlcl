@@ -19,7 +19,7 @@ OBJS = $(SRCS:.c=.o)
 HEADERS = redir.h unredir.h
 
 .PHONY: all
-all: $(TARGET)
+all: depend $(TARGET)
 
 %.o: %.c $(DEPS)
 	$(CC) -c -o $@ $< $(CFLAGS) $(ALLARCHFLAGS)
@@ -35,6 +35,8 @@ redir.h: symbols.x
 
 unredir.h: symbols.x
 	sed 's/SDL2_SYMBOL(\([^,]*\),.*/#undef \1/' $^ > $@
+
+depend: $(HEADERS) $(SRCS:.c=.d)
 
 ifneq ($(MAKECMDGOALS),clean)
 include $(SRCS:.c=.d)
