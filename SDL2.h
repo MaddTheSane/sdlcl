@@ -28,8 +28,12 @@
 #include "SDL_syswm.h"
 #include "unredir.h"
 
+#pragma GCC visibility push(hidden)
+
 #define SDL2_SYMBOL(name, ret, param) extern ret (SDLCALL *r##name) param;
 #include "symbols.x"
 #undef SDL2_SYMBOL
+
+#pragma GCC visibility pop
 
 #endif
